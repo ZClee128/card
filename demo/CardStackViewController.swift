@@ -100,6 +100,10 @@ class CardStackViewController: UIViewController {
         
         switch gesture.state {
         case .changed:
+            // 禁止右滑
+            if translation.x > 0 {
+                return
+            }
             // 获取第一张卡片的初始transform
             let scale = CGAffineTransform(scaleX: 1, y: 1)
             let translation = CGAffineTransform(translationX: translation.x, y: 0)
@@ -125,48 +129,47 @@ class CardStackViewController: UIViewController {
         isAnimating = true
         guard let firstCard = cards.first else { return }
         
-        // 第一张卡片滑出
-        UIView.animate(withDuration: 0.3, delay: 0, options: [.curveEaseOut], animations: {
+        // 准备新卡片
+        let newIndex = (currentIndex + 2) % titles.count
+        let newCard = CardView()
+        newCard.titleLabel.text = titles[newIndex]
+        newCard.alpha = 0
+        containerView.addSubview(newCard)
+        
+        newCard.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            newCard.widthAnchor.constraint(equalToConstant: cardWidth),
+            newCard.heightAnchor.constraint(equalToConstant: 180),
+            newCard.topAnchor.constraint(equalTo: containerView.topAnchor),
+            newCard.leadingAnchor.constraint(equalTo: containerView.leadingAnchor)
+        ])
+        
+        // 设置新卡片的初始位置
+        updateCardTransform(card: newCard, index: 2, animated: false)
+        
+        // 同步动画：第一张卡片滑出，其他卡片移动
+        UIView.animate(withDuration: 0.4, delay: 0, options: [.curveEaseOut], animations: {
+            // 第一张卡片滑出
             firstCard.transform = CGAffineTransform(translationX: -self.view.bounds.width, y: 0)
             firstCard.alpha = 0
+            
+            // 其他卡片同步移动
+            if self.cards.count > 1 {
+                self.updateCardTransform(card: self.cards[1], index: 0, animated: false)
+            }
+            if self.cards.count > 2 {
+                self.updateCardTransform(card: self.cards[2], index: 1, animated: false)
+            }
+            newCard.alpha = 1
         }) { _ in
             // 移除第一张卡片
             firstCard.removeFromSuperview()
             self.cards.removeFirst()
             
-            // 更新索引
+            // 更新索引和卡片数组
             self.currentIndex = (self.currentIndex + 1) % self.titles.count
-            
-            // 更新现有卡片的位置
-            for (index, card) in self.cards.enumerated() {
-                self.updateCardTransform(card: card, index: index)
-            }
-            
-            // 添加新卡片
-            let newIndex = (self.currentIndex + 2) % self.titles.count
-            let newCard = CardView()
-            newCard.titleLabel.text = self.titles[newIndex]
-            newCard.alpha = 0
-            self.containerView.addSubview(newCard)
             self.cards.append(newCard)
-            
-            newCard.translatesAutoresizingMaskIntoConstraints = false
-            NSLayoutConstraint.activate([
-                newCard.widthAnchor.constraint(equalToConstant: self.cardWidth),
-                newCard.heightAnchor.constraint(equalToConstant: 180),
-                newCard.topAnchor.constraint(equalTo: self.containerView.topAnchor),
-                newCard.leadingAnchor.constraint(equalTo: self.containerView.leadingAnchor)
-            ])
-            
-            // 设置新卡片的初始位置
-            self.updateCardTransform(card: newCard, index: 2, animated: false)
-            
-            // 显示新卡片
-            UIView.animate(withDuration: 0.2) {
-                newCard.alpha = 1
-            } completion: { _ in
-                self.isAnimating = false
-            }
+            self.isAnimating = false
         }
     }
 }
@@ -252,4 +255,4 @@ class CardView: UIView {
             titleLabel.bottomAnchor.constraint(lessThanOrEqualTo: containerView.bottomAnchor, constant: -12)
         ])
     }
-} 
+}
