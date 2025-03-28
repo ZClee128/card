@@ -3,6 +3,7 @@ import UIKit
 class CardStackViewController: UIViewController {
     private var cards: [CardView] = []
     private var currentIndex = 0
+    private var visibleCardCount: Int = 3
     
     // 示例数据
     private let titles = [
@@ -18,6 +19,9 @@ class CardStackViewController: UIViewController {
     private let cardWidth: CGFloat = 280 // 卡片宽度
     private let cardSpacing: CGFloat = 40 // 露出的宽度
     private let cardScaleRatio: CGFloat = 0.08 // 每张卡片的缩放比例
+    
+    // 重用池
+    private var cardReusePool: [CardView] = []
     
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -48,10 +52,13 @@ class CardStackViewController: UIViewController {
         cards.forEach { $0.removeFromSuperview() }
         cards.removeAll()
         
-        // 创建3张卡片
-        for i in 0..<3 {
+        // 计算实际可显示的卡片数量
+        visibleCardCount = min(3, titles.count - currentIndex)
+        
+        // 创建可见的卡片
+        for i in 0..<visibleCardCount {
+            let card = dequeueReusableCard()
             let index = (currentIndex + i) % titles.count
-            let card = CardView()
             card.titleLabel.text = titles[index]
             containerView.addSubview(card)
             cards.append(card)
@@ -68,6 +75,21 @@ class CardStackViewController: UIViewController {
             
             updateCardTransform(card: card, index: i, animated: false)
         }
+    }
+    
+    // 从重用池获取卡片
+    private func dequeueReusableCard() -> CardView {
+        if let card = cardReusePool.popLast() {
+            card.prepareForReuse()
+            return card
+        }
+        return CardView()
+    }
+    
+    // 将卡片放入重用池
+    private func recycleCard(_ card: CardView) {
+        card.removeFromSuperview()
+        cardReusePool.append(card)
     }
     
     private func updateCardTransform(card: CardView, index: Int, animated: Bool = true) {
@@ -95,29 +117,30 @@ class CardStackViewController: UIViewController {
     }
     
     @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
-        guard !isAnimating, let firstCard = cards.first else { return }
+        guard !isAnimating, !cards.isEmpty else { return }
         let translation = gesture.translation(in: containerView)
         
         switch gesture.state {
         case .changed:
-            // 禁止右滑
+            // 只禁止右滑，移除最后一张的限制
             if translation.x > 0 {
                 return
             }
             // 获取第一张卡片的初始transform
             let scale = CGAffineTransform(scaleX: 1, y: 1)
             let translation = CGAffineTransform(translationX: translation.x, y: 0)
-            firstCard.transform = scale.concatenating(translation)
+            cards[0].transform = scale.concatenating(translation)
             
         case .ended, .cancelled:
             let velocity = gesture.velocity(in: containerView)
             let translation = gesture.translation(in: containerView)
             
+            // 移除currentIndex的限制，允许无限循环
             if translation.x < -50 || velocity.x < -500 {
                 animateCardTransition()
             } else {
                 // 回弹动画
-                updateCardTransform(card: firstCard, index: 0)
+                updateCardTransform(card: cards[0], index: 0)
             }
             
         default:
@@ -129,10 +152,12 @@ class CardStackViewController: UIViewController {
         isAnimating = true
         guard let firstCard = cards.first else { return }
         
+        // 计算下一张卡片的索引，支持循环
+        let nextIndex = (currentIndex + visibleCardCount) % titles.count
+        
         // 准备新卡片
-        let newIndex = (currentIndex + 2) % titles.count
-        let newCard = CardView()
-        newCard.titleLabel.text = titles[newIndex]
+        let newCard = dequeueReusableCard()
+        newCard.titleLabel.text = titles[nextIndex]
         newCard.alpha = 0
         containerView.addSubview(newCard)
         
@@ -145,7 +170,7 @@ class CardStackViewController: UIViewController {
         ])
         
         // 设置新卡片的初始位置
-        updateCardTransform(card: newCard, index: 2, animated: false)
+        updateCardTransform(card: newCard, index: visibleCardCount - 1, animated: false)
         
         // 同步动画：第一张卡片滑出，其他卡片移动
         UIView.animate(withDuration: 0.4, delay: 0, options: [.curveEaseOut], animations: {
@@ -154,19 +179,16 @@ class CardStackViewController: UIViewController {
             firstCard.alpha = 0
             
             // 其他卡片同步移动
-            if self.cards.count > 1 {
-                self.updateCardTransform(card: self.cards[1], index: 0, animated: false)
-            }
-            if self.cards.count > 2 {
-                self.updateCardTransform(card: self.cards[2], index: 1, animated: false)
+            for i in 1..<self.cards.count {
+                self.updateCardTransform(card: self.cards[i], index: i - 1, animated: false)
             }
             newCard.alpha = 1
         }) { _ in
-            // 移除第一张卡片
-            firstCard.removeFromSuperview()
+            // 回收第一张卡片
+            self.recycleCard(firstCard)
             self.cards.removeFirst()
             
-            // 更新索引和卡片数组
+            // 更新索引和卡片数组，支持循环
             self.currentIndex = (self.currentIndex + 1) % self.titles.count
             self.cards.append(newCard)
             self.isAnimating = false
@@ -216,6 +238,14 @@ class CardView: UIView {
     
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+    
+    // 重用前重置状态
+    func prepareForReuse() {
+        transform = .identity
+        alpha = 1
+        titleLabel.text = nil
+        layer.zPosition = 0
     }
     
     private func setupUI() {
